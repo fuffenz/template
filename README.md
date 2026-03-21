@@ -1,29 +1,33 @@
-DEVELOPER INSTRUCTIONS:
-=======================
+# Netnod DNS for `libdns`
 
-This repo is a template for developers to use when creating new [libdns](https://github.com/libdns/libdns) provider implementations.
+[![godoc reference](https://img.shields.io/badge/godoc-reference-blue.svg)](https://pkg.go.dev/github.com/libdns/netnod)
 
-Be sure to update:
+This package implements the [libdns](https://github.com/libdns/libdns) interfaces for the [Netnod Primary DNS API](https://primarydnsapi.netnod.se).
 
-- The package name
-- The Go module name in go.mod
-- The latest `libdns/libdns` version in go.mod
-- All comments and documentation, including README below and godocs
-- License (must be compatible with Apache/MIT)
-- All "TODO:"s is in the code
-- All methods that currently do nothing
+## Authenticating
 
-**Please be sure to conform to the semantics described at the [libdns godoc](https://github.com/libdns/libdns).**
+To authenticate, you need a Netnod API token. Generate one through the Netnod customer portal and ensure your client IP is within the configured prefix range.
 
-_Remove this section from the readme before publishing._
+## Example
 
----
+```go
+provider := &netnod.Provider{
+    APIToken: "your-api-token",
+}
 
-\<PROVIDER NAME\> for [`libdns`](https://github.com/libdns/libdns)
-=======================
+records, err := provider.GetRecords(context.Background(), "example.com.")
+```
 
-[![Go Reference](https://pkg.go.dev/badge/test.svg)](https://pkg.go.dev/github.com/libdns/TODO:PROVIDER_NAME)
+See [provider_test.go](provider_test.go) for more usage examples.
 
-This package implements the [libdns interfaces](https://github.com/libdns/libdns) for \<PROVIDER\>, allowing you to manage DNS records.
+## Testing
 
-TODO: Show how to configure and use. Explain any caveats.
+Run integration tests against a live Netnod account:
+
+```bash
+NETNOD_API_TOKEN=your-token NETNOD_TEST_ZONE=example.com. go test -race -v ./...
+```
+
+## License
+
+BSD 3-Clause
