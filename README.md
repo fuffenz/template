@@ -4,6 +4,8 @@
 
 This package implements the [libdns](https://github.com/libdns/libdns) interfaces for the [Netnod Primary DNS API](https://primarydnsapi.netnod.se).
 
+[Netnod DNS services](https://netnod.se/dns/)
+
 ## Authenticating
 
 To authenticate, you need a Netnod API token. Generate one through the Netnod customer portal and ensure your client IP is within the configured prefix range.
