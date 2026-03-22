@@ -22,6 +22,32 @@ records, err := provider.GetRecords(context.Background(), "example.com.")
 
 See [provider_test.go](provider_test.go) for more usage examples.
 
+## Caveats
+
+### Rate Limiting
+
+The Netnod API enforces rate limiting (HTTP 429). This provider automatically retries
+rate-limited requests using exponential backoff, respecting the `Retry-After` header when
+present. It is important to set a deadline on the context to avoid retrying indefinitely:
+
+```go
+ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+defer cancel()
+records, err := provider.GetRecords(ctx, "example.com.")
+```
+
+### TTL
+
+The Netnod API operates on RRsets (all records sharing a name and type). A single TTL applies
+to the entire RRset. If multiple records with the same name and type specify different TTLs,
+only the first value is used.
+
+### Atomicity
+
+Updates are not atomic across processes. Concurrent modifications from multiple processes to
+the same RRset may result in inconsistent state. To avoid conflicts, ensure that concurrent
+processes operate on different RRsets.
+
 ## Testing
 
 Run integration tests against a live Netnod account:

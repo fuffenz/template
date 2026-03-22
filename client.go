@@ -6,9 +6,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strconv"
+	"time"
 )
 
 const defaultBaseURL = "https://primarydnsapi.netnod.se"
@@ -50,23 +52,13 @@ func (p *Provider) doRequest(ctx context.Context, method, path string, body any)
 		baseURL = p.BaseURL
 	}
 
-	var bodyReader io.Reader
+	var bodyBytes []byte
 	if body != nil {
-		b, err := json.Marshal(body)
+		var err error
+		bodyBytes, err = json.Marshal(body)
 		if err != nil {
 			return nil, fmt.Errorf("marshaling request body: %w", err)
 		}
-		bodyReader = bytes.NewReader(b)
-	}
-
-	req, err := http.NewRequestWithContext(ctx, method, baseURL+path, bodyReader)
-	if err != nil {
-		return nil, fmt.Errorf("creating request: %w", err)
-	}
-
-	req.Header.Set("Authorization", "Token "+p.APIToken)
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
 	}
 
 	client := http.DefaultClient
@@ -74,22 +66,67 @@ func (p *Provider) doRequest(ctx context.Context, method, path string, body any)
 		client = p.HTTPClient
 	}
 
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("performing request: %w", err)
-	}
+	backoff := time.Second
+	const maxBackoff = 30 * time.Second
 
-	if resp.StatusCode >= 400 {
-		defer resp.Body.Close()
-		respBody, _ := io.ReadAll(resp.Body)
-		var apiErr apiError
-		if json.Unmarshal(respBody, &apiErr) == nil && apiErr.Error != "" {
-			return nil, fmt.Errorf("API error %d: %s", resp.StatusCode, apiErr.Error)
+	for {
+		var bodyReader io.Reader
+		if bodyBytes != nil {
+			bodyReader = bytes.NewReader(bodyBytes)
 		}
-		return nil, fmt.Errorf("API error %d: %s", resp.StatusCode, string(respBody))
-	}
 
-	return resp, nil
+		req, err := http.NewRequestWithContext(ctx, method, baseURL+path, bodyReader)
+		if err != nil {
+			return nil, fmt.Errorf("creating request: %w", err)
+		}
+
+		req.Header.Set("Authorization", "Token "+p.APIToken)
+		if bodyBytes != nil {
+			req.Header.Set("Content-Type", "application/json")
+		}
+
+		resp, err := client.Do(req)
+		if err != nil {
+			return nil, fmt.Errorf("performing request: %w", err)
+		}
+
+		if resp.StatusCode == http.StatusTooManyRequests {
+			resp.Body.Close()
+
+			wait := backoff
+			if ra := resp.Header.Get("Retry-After"); ra != "" {
+				if secs, err := strconv.Atoi(ra); err == nil {
+					wait = time.Duration(secs) * time.Second
+				}
+			}
+
+			slog.Info("rate limited, retrying", "method", method, "path", path, "wait", wait)
+
+			select {
+			case <-ctx.Done():
+				return nil, fmt.Errorf("rate limited, context cancelled while waiting to retry: %w", ctx.Err())
+			case <-time.After(wait):
+			}
+
+			backoff *= 2
+			if backoff > maxBackoff {
+				backoff = maxBackoff
+			}
+			continue
+		}
+
+		if resp.StatusCode >= 400 {
+			defer resp.Body.Close()
+			respBody, _ := io.ReadAll(resp.Body)
+			var apiErr apiError
+			if json.Unmarshal(respBody, &apiErr) == nil && apiErr.Error != "" {
+				return nil, fmt.Errorf("API error %d: %s", resp.StatusCode, apiErr.Error)
+			}
+			return nil, fmt.Errorf("API error %d: %s", resp.StatusCode, string(respBody))
+		}
+
+		return resp, nil
+	}
 }
 
 func (p *Provider) getZone(ctx context.Context, zoneID string) (apiZone, error) {
